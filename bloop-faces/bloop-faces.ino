@@ -23,8 +23,15 @@ unsigned long nextBlinkDelay = 2000;
 bool isBlinking = false;
 const unsigned long BLINK_DURATION = 150; ///< Duration the eyes remain closed (ms)
 
+// --- Global Enum Emotion State --- 
+enum EmotionState {
+  IDLE, NEUTRAL, ANGRY, CONFUSED, HAPPY, EXCITED, SAD, SHOCKED
+};
+EmotionState currentEmotion = IDLE;
+
 void setup() {
   Serial.begin(115200);
+  Serial.setTimeout(10);
   
   // Initialize RGB LED pins
   pinMode(RGB_RED_PIN, OUTPUT);
@@ -44,29 +51,40 @@ void setup() {
 }
 
 void loop() {
-  // 1. Maintain the non-blocking blink timer
+  // Maintain the non-blocking blink timer
   updateBlinkState();
 
-  // 2. Clear the buffer before rendering the new frame
+  // Check for incoming Serial commands from Python
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim(); // Remove invisible \r or \n characters
+
+    if (command == "idle") currentEmotion = IDLE;
+    else if (command == "neutral") currentEmotion = NEUTRAL;
+    else if (command == "angry") currentEmotion = ANGRY;
+    else if (command == "confused") currentEmotion = CONFUSED;
+    else if (command == "happy") currentEmotion = HAPPY;
+    else if (command == "excited") currentEmotion = EXCITED;
+    else if (command == "sad") currentEmotion = SAD;
+    else if (command == "shocked") currentEmotion = SHOCKED;
+  }
+
+  // Clear the buffer before rendering the new frame
   display.clearDisplay();
 
-  // ==============================================================================
-  // 3. EMOTION TESTER
-  // Uncomment ONLY ONE of the functions below to test a specific reaction
-  // ==============================================================================
-  
-   renderIdle();
-  // renderNeutral();
-  // renderAngry();
-  // renderConfused();
-  // renderHappy();
-  // renderExcited();
-  // renderSad();
-  // renderShocked();
+  // Render the currently active emotion
+  switch (currentEmotion) {
+    case IDLE: renderIdle(); break;
+    case NEUTRAL: renderNeutral(); break;
+    case ANGRY: renderAngry(); break;
+    case CONFUSED: renderConfused(); break;
+    case HAPPY: renderHappy(); break;
+    case EXCITED: renderExcited(); break;
+    case SAD: renderSad(); break;
+    case SHOCKED: renderShocked(); break;
+  }
 
-  // ==============================================================================
-
-  // 4. Push the buffer to the OLED screen
+  // Push the buffer to the OLED screen
   display.display();
 }
 

@@ -10,12 +10,14 @@ import os
 import subprocess
 import urllib.request
 import time
-from dotenv import load_dotenv
+import json
+import serial
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from groq import Groq
 from openwakeword.model import Model
+from dotenv import load_dotenv
 
 # ==========================================
 # CONFIGURATION & CONSTANTS
@@ -77,9 +79,12 @@ def record_audio(filepath: str, duration: int, samplerate: int) -> int:
 def play_audio(file_path: str) -> None:
     """
     Reads and plays a WAV file through the default system audio output.
+    Pads the end with 0.5 seconds of silence to prevent hardware clipping.
     """
     data, fs = sf.read(file_path, dtype="float32")
-    sd.play(data, fs)
+    silence = np.zeros(int(fs * 0.5), dtype="float32") # 0.5 sec of silence
+    padded_data = np.concatenate((data, silence)) # Pad it to the audio
+    sd.play(padded_data, fs)
     sd.wait()
 
 # ==========================================
@@ -90,6 +95,10 @@ def main() -> None:
     load_dotenv()
     client = Groq()
     ensure_voice_model()
+
+    print("Connecting to Arduino...")
+    arduino = serial.Serial('COM6', 115200, timeout=1) # Change to correct port
+    time.sleep(2) # Give Arduino 2 seconds to reboot after serial connection
 
     print("Loading openWakeWord engine...")
     openwakeword.utils.download_models()
@@ -119,6 +128,7 @@ def main() -> None:
             
             if triggered:
                 print("\n🔔 [WAKE WORD DETECTED] Bloop is awake.")
+                arduino.write(b"neutral\n") # Change from idle to neutral
                 mic_stream.stop()
                 
                 # Enter active conversation mode
@@ -154,8 +164,11 @@ def main() -> None:
 
                     # Generate AI response via Groq LLaMA 3.1
                     system_prompt = (
-                        "You are Bloop, an energetic, cute, and slightly "
-                        "sarcastic desktop robot. Keep answers extremely brief."
+                        "You are Bloop, an energetic, cute, and slightly sarcastic desktop robot. "
+                        "Keep answers extremely brief. "
+                        "You MUST respond ONLY in valid JSON format with two keys: 'reaction' and 'response'. "
+                        "Choose 'reaction' strictly from this list: [idle, neutral, angry, confused, happy, excited, sad, shocked]. "
+                        "Example: {\"reaction\": \"happy\", \"response\": \"That is so cool!\"}"
                     )
 
                     response = client.chat.completions.create(
@@ -164,12 +177,28 @@ def main() -> None:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_text},
                         ],
-                        max_tokens=80,
+                        max_tokens=150,
                         temperature=0.7,
+                        response_format={"type": "json_object"} # Forces Groq to return JSON
                     )
 
-                    ai_text = response.choices[0].message.content
-                    print(f"Bloop: {ai_text}")
+                    # Parse the JSON
+                    raw_json = response.choices[0].message.content
+                    try:
+                        bloop_data = json.loads(raw_json)
+                        ai_text = bloop_data.get("response", "I don't know what to say.")
+                        reaction = bloop_data.get("reaction", "idle")
+                    except json.JSONDecodeError:
+                        # Fallback if the LLM hallucinates non-JSON
+                        ai_text = "My brain glitched for a second."
+                        reaction = "confused"
+
+                    print(f"Bloop: {ai_text} [Reaction pending: {reaction}]")
+
+                    # Send reaction to Arduino
+                    command = f"{reaction}\n"
+                    arduino.write(command.encode('utf-8'))
+                    print(f"[Hardware] Sent emotion: {reaction}")
 
                     # Synthesize and play voice via local Piper TTS
                     piper_cmd = (
@@ -183,15 +212,21 @@ def main() -> None:
 
                     if os.path.exists(TEMP_OUTPUT_WAV):
                         play_audio(TEMP_OUTPUT_WAV)
+
+                        time.sleep(1.5) # 1.5 sec delay before going back
+                        arduino.write(b"neutral\n") # Change back to neutral after talking
                     else:
                         print("Error: Piper failed to generate audio.")
 
-                    # Reset the cooldown timer after a successful conversation turn
+                    # Reset timer
                     last_active = time.time()
 
                 # Cleanup temporary files and enter sleep mode
                 if os.path.exists(TEMP_COMMAND_WAV): os.remove(TEMP_COMMAND_WAV)
                 if os.path.exists(TEMP_OUTPUT_WAV): os.remove(TEMP_OUTPUT_WAV)
+
+                # Tell Arduino to go back to idle face for bloop
+                arduino.write(b"idle\n")
                 
                 oww_model.reset()
                 print("\n💤 Bloop went back to sleep. Listening for wake word...")
