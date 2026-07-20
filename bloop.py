@@ -34,7 +34,7 @@ TEMP_COMMAND_WAV = "command_temp.wav"
 TEMP_OUTPUT_WAV = "output_temp.wav"
 
 # Awake State Settings
-AWAKE_TIME = 180  # Cooldown timer in seconds (3 minutes)
+AWAKE_TIME = 60  # Cooldown timer in seconds (1 minute)
 SILENCE_THRESHOLD = 2700  # Peak amplitude required to trigger the API (0-32767)
 
 # ==========================================
@@ -93,7 +93,7 @@ def play_audio(file_path: str) -> None:
 def main() -> None:
     # Initialization
     load_dotenv()
-    client = Groq()
+    client = Groq() 
     ensure_voice_model()
 
     print("Connecting to Arduino...")
@@ -135,7 +135,7 @@ def main() -> None:
                 last_active = time.time()
                 
                 while time.time() - last_active < AWAKE_TIME:
-                    print("\r🎤 Listening... (Awake for 3 minutes)", end="", flush=True)
+                    print(f"\r🎤 Listening... (Awake for {AWAKE_TIME} seconds)", end="", flush=True)
                     
                     # Capture command and check for silence
                     peak_volume = record_audio(TEMP_COMMAND_WAV, RECORDING_DURATION, SAMPLE_RATE)
@@ -150,8 +150,17 @@ def main() -> None:
                         transcription = client.audio.transcriptions.create(
                             file=(TEMP_COMMAND_WAV, audio_file.read()),
                             model="whisper-large-v3-turbo",
+                            response_format="verbose_json", # For detecting language
                         )
                     user_text = transcription.text.strip()
+                    detected_lang = getattr(transcription, 'language', '').lower()
+                    print(f" [Debug] Whisper detected language: {detected_lang}")
+
+                    # Filter out unwanted languages
+                    allowed_langs = ["english"]
+                    if detected_lang and detected_lang not in allowed_langs:
+                        print(f"Skipping: Ignored unsupported language ({detected_lang}).")
+                        continue
                     
                     # Filter non-alphanumeric noise and known Whisper hallucinations
                     has_words = any(char.isalnum() for char in user_text)
@@ -229,7 +238,7 @@ def main() -> None:
                 arduino.write(b"idle\n")
                 
                 oww_model.reset()
-                print("\n💤 Bloop went back to sleep. Listening for wake word...")
+                print("\n💤 Bloop went back to idle mode. Listening for wake word...")
                 mic_stream.start()
                 
         except KeyboardInterrupt:
@@ -237,6 +246,8 @@ def main() -> None:
             break
         except Exception as e:
             print(f"\nError encountered: {e}")
+            time.sleep(1.5)
+            arduino.write(b"idle\n") # Change to idle when encoutering an error
             break
 
 if __name__ == "__main__":

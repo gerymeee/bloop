@@ -268,25 +268,25 @@ void renderSad() {
  * @brief Renders a shocked, stunned, or terrified state.
  */
 void renderShocked() {
-  setRGB(255, 255, 255); // Bright White (Flash)
+  setRGB(255, 255, 255);
 
   if (isBlinking) {
-    display.fillRect(26, 20, 12, 4, WHITE);
-    display.fillRect(90, 20, 12, 4, WHITE);
+    display.fillRect(18, 32, 28, 4, WHITE);
+    display.fillRect(82, 32, 28, 4, WHITE);
   } else {
-    display.fillCircle(32, 22, 7, WHITE);
-    display.fillCircle(96, 22, 7, WHITE);
+    display.fillRoundRect(18, 14, 28, 36, 8, WHITE);
+    display.fillRoundRect(82, 14, 28, 36, 8, WHITE);
 
-    display.drawRoundRect(52, 34, 24, 26, 10, WHITE);
-    display.drawRoundRect(53, 35, 22, 24, 9, WHITE); 
-
-    display.drawLine(20, 4, 20, 12, WHITE);
-    display.drawLine(32, 2, 32, 9, WHITE);
-    display.drawLine(44, 4, 44, 12, WHITE);
+    display.drawLine(22, 8, 42, 4, WHITE);
+    display.drawLine(22, 7, 42, 3, WHITE);
+    display.drawLine(22, 6, 42, 2, WHITE);
     
-    display.drawLine(84, 4, 84, 12, WHITE);
-    display.drawLine(96, 2, 96, 9, WHITE);
-    display.drawLine(108, 4, 108, 12, WHITE);
+    display.drawLine(86, 4, 106, 8, WHITE);
+    display.drawLine(86, 3, 106, 7, WHITE);
+    display.drawLine(86, 2, 106, 6, WHITE);
+
+    display.fillRoundRect(56, 36, 16, 22, 8, WHITE);
+    display.fillRoundRect(58, 38, 12, 18, 6, BLACK); 
   }
 }
 
@@ -294,25 +294,24 @@ void renderShocked() {
  * @brief Renders an idle state with slower, more realistic glances.
  */
 void renderIdle() {
-  setRGB(0, 150, 200); // Calming Cyan/Light Blue
+  setRGB(0, 150, 200);
 
-  // --- Static Timers for Eyes ---
   static unsigned long lastEyeActionMs = 0;
   static unsigned long eyeActionDelay = 3000;
   static int eyeOffsetX = 0;
   static int eyeOffsetY = 0;
 
-  // --- Static Timers for Mouth ---
   static unsigned long lastMouthActionMs = 0;
   static unsigned long mouthActionDelay = 5000;
-  static int currentMouth = 0; // 0 = none, 1 = w, 2 = yawn, 3 = dash
+  static int currentMouth = 1; // Default to 1 ('w' mouth)
 
   unsigned long now = millis();
 
   // ==========================================
   // 1. EYE MOVEMENT LOGIC
   // ==========================================
-  if (now - lastEyeActionMs > eyeActionDelay) {
+  // Prevent eyes from darting around while yawning
+  if (now - lastEyeActionMs > eyeActionDelay && currentMouth != 2) {
     lastEyeActionMs = now;
     
     int action = random(0, 10); 
@@ -350,11 +349,19 @@ void renderIdle() {
   if (now - lastMouthActionMs > mouthActionDelay) {
     lastMouthActionMs = now;
     
-    if (currentMouth == 0) {
-      currentMouth = random(1, 4); 
+    if (currentMouth == 1) { 
+      // Switch from 'w' to either yawn (2) or dash (3)
+      currentMouth = random(2, 4); 
       mouthActionDelay = random(2000, 4000); 
+
+      // Center the eyes naturally when a yawn begins
+      if (currentMouth == 2) {
+        eyeOffsetX = 0;
+        eyeOffsetY = 0;
+      }
     } else {
-      currentMouth = 0;
+      // Revert back to the constant 'w' mouth
+      currentMouth = 1;
       mouthActionDelay = random(5000, 12000); 
     }
   }
@@ -376,7 +383,7 @@ void renderIdle() {
   }
 
   // ==========================================
-  // 4. DRAW MOUTH (With Parallax)
+  // 4. DRAW MOUTH & ANIMATIONS
   // ==========================================
   int mouthX = 64 + (eyeOffsetX / 2);
   int mouthY = 56 + (eyeOffsetY / 2);
@@ -388,8 +395,29 @@ void renderIdle() {
     display.drawLine(mouthX + 3, mouthY + 2, mouthX + 6, mouthY - 2, WHITE);
   } 
   else if (currentMouth == 2) {
-    display.fillRoundRect(mouthX - 6, mouthY - 2, 12, 12, 4, WHITE);
-    display.fillRoundRect(mouthX - 4, mouthY, 8, 8, 2, BLACK); 
+    // Shift yawn up by 8 pixels so it doesn't clip the bottom of the OLED
+    int yawnY = mouthY - 8; 
+    
+    display.fillRoundRect(mouthX - 6, yawnY - 2, 12, 12, 4, WHITE);
+    display.fillRoundRect(mouthX - 4, yawnY, 8, 8, 2, BLACK); 
+
+    // Staggered "Z" animation based on how long it has been yawning
+    unsigned long yawnElapsed = now - lastMouthActionMs;
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    
+    if (yawnElapsed > 400) {
+      display.setCursor(mouthX + 14, yawnY - 12);
+      display.print("z");
+    }
+    if (yawnElapsed > 1200) {
+      display.setCursor(mouthX + 22, yawnY - 22);
+      display.print("z");
+    }
+    if (yawnElapsed > 2000) {
+      display.setCursor(mouthX + 32, yawnY - 32);
+      display.print("Z");
+    }
   } 
   else if (currentMouth == 3) {
     display.drawLine(mouthX - 4, mouthY, mouthX + 4, mouthY, WHITE);
